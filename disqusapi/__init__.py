@@ -2,7 +2,7 @@
 disqus-python
 ~~~~~~~~~~~~~
 
-disqus = DisqusAPI(api_secret=secret_key)
+disqus = DisqusAPI(secret_key)
 disqus.trends.listThreads()
 
 """
@@ -12,178 +12,197 @@ try:
 except:
     __version__ = 'unknown'
 
-import httplib
 import os.path
 import simplejson
-import urllib
-import warnings
 
-from disqusapi.paginator import Paginator
+from disqusapi.compat import urlencode, HTTPSConnection
+from disqusapi.exceptions import (
+    InterfaceNotDefined,
+    APIError,
+    InvalidAccessToken,
+    RateLimitError)
 
-__all__ = ['DisqusAPI', 'Paginator']
-
-INTERFACES = simplejson.loads(open(os.path.join(os.path.dirname(__file__), 'interfaces.json'), 'r').read())
-
-HOST = 'disqus.com'
-
-
-class InterfaceNotDefined(NotImplementedError):
-    pass
-
-
-class APIError(Exception):
-    def __init__(self, code, message):
-        self.code = code
-        self.message = message
-
-    def __str__(self):
-        return '%s: %s' % (self.code, self.message)
-
-
-class InvalidAccessToken(APIError):
-    pass
-
-ERROR_MAP = {
-    18: InvalidAccessToken,
-}
+__all__ = ['DisqusAPI']
 
 
 class Result(object):
+    """
+    Wraps a result dictionary and its cursor.
+
+    It allows common operations directly over the response part.
+    """
     def __init__(self, response, cursor=None):
         self.response = response
         self.cursor = cursor or {}
 
     def __repr__(self):
-        return '<%s: %s>' % (self.__class__.__name__, repr(self.response))
+        return '<Result: %s>' % repr(self.response)
 
     def __iter__(self):
-        for r in self.response:
-            yield r
+        for result in self.response:
+            yield result
 
     def __len__(self):
         return len(self.response)
 
-    def __getslice__(self, i, j):
-        return list.__getslice__(self.response, i, j)
-
     def __getitem__(self, key):
-        return list.__getitem__(self.response, key)
+        return self.response.__getitem__(key)
 
     def __contains__(self, key):
-        return list.__contains__(self.response, key)
+        return self.response.__contains__(key)
+
+    def __eq__(self, other):
+        return self.response == other.response and \
+            self.cursor == other.cursor
 
 
-class Resource(object):
-    def __init__(self, api, interface=INTERFACES, node=None, tree=()):
-        self.api = api
-        self.node = node
+class ResourceElement(object):
+    """
+    Object like walking resource generation
+
+    This allows resource generation in this form:
+
+    >>> this.is.an.api.resource.now
+
+    Generating resources for each step, so in the end you get a resource with a
+    tree like this: `('this', 'is', 'an', 'api', 'resource')`
+
+    Since at least two classes use this functionality, do not forget to
+    override _new_element. This method specify what to build as a resource and
+    how to build it.
+    """
+    def __init__(self, interface, node, tree):
         self.interface = interface
         if node:
             tree = tree + (node,)
         self.tree = tree
 
+    def __eq__(self, other):
+        return self.interface == other.interface and \
+            self.tree == other.tree
+
     def __getattr__(self, attr):
-        if attr in getattr(self, '__dict__'):
-            return getattr(self, attr)
         interface = self.interface
         if attr not in interface:
             interface[attr] = {}
-            # raise InterfaceNotDefined(attr)
-        return Resource(self.api, interface[attr], attr, self.tree)
+        return self._new_element(interface[attr], attr, self.tree)
+
+    def _new_element(self, interface, node, tree):
+        """What to build as a resource in the next step (and how to do it)"""
+        raise NotImplementedError('Implment in your subclass')
+
+
+class Resource(ResourceElement):
+    def __init__(self, request, interface, node, tree):
+        super(Resource, self).__init__(interface, node, tree)
+        self.request = request
+
+    def _new_element(self, interface, node, tree):
+        return Resource(self.request, interface, node, tree)
+
+    def __eq__(self, other):
+        return self.request == other.request and \
+            super(Resource, self).__eq__(other)
 
     def __call__(self, **kwargs):
-        return self._request(**kwargs)
+        return self._make_request(**kwargs)
 
-    def _request(self, **kwargs):
-        # Handle undefined interfaces
-        resource = self.interface
-        for k in resource.get('required', []):
-            if k not in (x.split(':')[0] for x in kwargs.iterkeys()):
-                raise ValueError('Missing required argument: %s' % k)
+    def _validate_arguments(self, kwargs):
+        """Validate arguments taking care of queries in the names"""
+        keys = set(key.split(':')[0] for key in kwargs.keys())
+        for required in self.interface.get('required', []):
+            if required not in keys:
+                raise ValueError('Missing required argument: %s' % required)
 
-        method = kwargs.pop('method', resource.get('method'))
-
+    def _validate_method(self, kwargs):
+        method = kwargs.pop('method', self.interface.get('method'))
         if not method:
-            raise InterfaceNotDefined('Interface is not defined, you must pass ``method`` (HTTP Method).')
+            raise InterfaceNotDefined(
+                'Interface is not defined, you must pass ``method``'
+                ' (HTTP Method).')
+        return method
 
-        api = self.api
+    def _make_request(self, **kwargs):
+        self._validate_arguments(kwargs)
+        method = self._validate_method(kwargs)
+        return self.request(method, '/'.join(self.tree), kwargs)
 
-        version = kwargs.pop('version', api.version)
-        format = kwargs.pop('format', api.format)
 
-        conn = httplib.HTTPSConnection(HOST)
+class DisqusRequest(object):
+    headers = {'User-Agent': 'disqus-python/%s' % __version__}
+    error_map = {
+        13: RateLimitError,
+        14: RateLimitError,
+        18: InvalidAccessToken,
+    }
+    host = 'disqus.com'
 
-        path = '/api/%s/%s.%s' % (version, '/'.join(self.tree), format)
+    def __init__(self, default_params, version, conn=HTTPSConnection):
+        self.__defaults = default_params
+        self.__version = version
+        self.__conn = conn
 
-        if 'api_secret' not in kwargs and api.secret_key:
-            kwargs['api_secret'] = api.secret_key
-        if 'api_public' not in kwargs and api.public_key:
-            kwargs['api_key'] = api.public_key
+    def _update_params(self, kwargs):
+        for name, value in self.__defaults.items():
+            if value is None:
+                continue
+            if name not in kwargs:
+                kwargs[name] = value
 
-        # We need to ensure this is a list so that
-        # multiple values for a key work
-        params = []
-        for k, v in kwargs.iteritems():
-            if isinstance(v, (list, tuple)):
-                for val in v:
-                    params.append((k, val))
-            else:
-                params.append((k, v))
+    def __call__(self, method, path, kwargs):
+        self._update_params(kwargs)
+        params = params_list(kwargs)
+        # Adjust path
+        path = '/api/%s/%s.json' % (self.__version, path)
 
-        headers = {
-            'User-Agent': 'disqus-python/%s' % __version__
-        }
-
+        # Adjust data based on the method
         if method == 'GET':
-            path = '%s?%s' % (path, urllib.urlencode(params))
+            path = '%s?%s' % (path, urlencode(params))
             data = ''
         else:
-            data = urllib.urlencode(params)
+            data = urlencode(params)
 
-        conn.request(method, path, data, headers)
+        conn = self.__conn(self.host)
+        conn.request(method, path, data, self.headers)
 
         response = conn.getresponse()
         # Let's coerce it to Python
-        data = api.formats[format](response.read())
+        data = simplejson.loads(response.read())
 
         if response.status != 200:
-            raise ERROR_MAP.get(data['code'], APIError)(data['code'], data['response'])
+            exception_class = self.error_map.get(data['code'], APIError)
+            raise exception_class(data['code'], data['response'])
 
         if isinstance(data['response'], list):
             return Result(data['response'], data.get('cursor'))
         return data['response']
 
 
-class DisqusAPI(Resource):
-    formats = {
-        'json': lambda x: simplejson.loads(x),
-    }
+def params_list(kwargs):
+    params = []
+    for key, value in kwargs.items():
+        if isinstance(value, (list, tuple)):
+            params.extend([(key, list_val) for list_val in value])
+        else:
+            params.append((key, value))
+    return params
 
-    def __init__(self, secret_key=None, public_key=None, format='json', version='3.0', **kwargs):
-        self.secret_key = secret_key
-        self.public_key = public_key
-        if not public_key:
-            warnings.warn('You should pass ``public_key`` in addition to your secret key.')
-        self.format = format
-        self.version = version
-        super(DisqusAPI, self).__init__(self)
 
-    def _request(self, **kwargs):
-        raise SyntaxError('You cannot call the API without a resource.')
+def load_interfaces():
+    return simplejson.loads(open(os.path.join(
+        os.path.dirname(__file__), 'interfaces.json'), 'r').read())
 
-    def _get_key(self):
-        return self.secret_key
-    key = property(_get_key)
 
-    def setSecretKey(self, key):
-        self.secret_key = key
-    setKey = setSecretKey
+class DisqusAPI(ResourceElement):
+    def __init__(self, secret_key=None, public_key=None, access_token=None,
+                 version='3.0'):
+        super(DisqusAPI, self).__init__(load_interfaces(), None, ())
 
-    def setPublicKey(self, key):
-        self.public_key = key
+        default_params = dict(
+            api_secret=secret_key,
+            api_key=public_key,
+            access_token=access_token)
+        self.make_request = DisqusRequest(default_params, version)
 
-    def setFormat(self, format):
-        self.format = format
-
-    def setVersion(self, version):
-        self.version = version
+    def _new_element(self, interface, node, tree):
+        return Resource(self.make_request, interface, node, tree)

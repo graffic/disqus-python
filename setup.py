@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='disqus-python',
-    version='0.4.2',
+    version='0.5.0',
     author='DISQUS',
     author_email='david@disqus.com',
     url='http://github.com/disqus/disqus-python',
@@ -17,7 +17,6 @@ setup(
         'nose>=1.0',
     ],
     tests_require=[
-        'unittest2',
         'mock',
     ],
     include_package_data=True,

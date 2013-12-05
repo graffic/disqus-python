@@ -1,23 +1,26 @@
 import binascii
 import hashlib
 import hmac
-import urllib
-import urlparse
+
+from disqusapi.compat import urlencode, urlparse
+
 
 def get_normalized_params(params):
     """
     Given a list of (k, v) parameters, returns
     a sorted, encoded normalized param
     """
-    return urllib.urlencode(sorted(params))
+    return urlencode(sorted(params))
 
-def get_normalized_request_string(method, url, nonce, params, ext='', body_hash=None):
+
+def get_normalized_request_string(
+        method, url, nonce, params, ext='', body_hash=None):
     """
     Returns a normalized request string as described iN OAuth2 MAC spec.
 
     http://tools.ietf.org/html/draft-ietf-oauth-v2-http-mac-00#section-3.3.1
     """
-    urlparts = urlparse.urlparse(url)
+    urlparts = urlparse(url)
     if urlparts.query:
         norm_url = '%s?%s' % (urlparts.path, urlparts.query)
     elif params:
@@ -37,9 +40,11 @@ def get_normalized_request_string(method, url, nonce, params, ext='', body_hash=
         elif urlparts.scheme == 'https':
             port = 443
 
-    output = [nonce, method.upper(), norm_url, urlparts.hostname, port, body_hash, ext, '']
+    output = [nonce, method.upper(), norm_url, urlparts.hostname, port,
+              body_hash, ext, '']
 
     return '\n'.join(map(str, output))
+
 
 def get_body_hash(params):
     """
@@ -50,6 +55,7 @@ def get_body_hash(params):
     norm_params = get_normalized_params(params)
 
     return binascii.b2a_base64(hashlib.sha1(norm_params).digest())[:-1]
+
 
 def get_mac_signature(api_secret, norm_request_string):
     """
