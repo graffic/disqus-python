@@ -108,8 +108,14 @@ class TestResource(unittest.TestCase):
 
     def test_request(self):
         request = Mock()
-        Resource(request, {'method': 'POST'}, 'b', ('a',))(a=1)
-        request.assert_called_with('POST', 'a/b', {'a': 1})
+        Resource(request, {'method': 'POST'}, 'b', ('a',))(c=1)
+        request.assert_called_with('POST', 'a/b', {'c': 1})
+
+    def test_request_required_query_parameter(self):
+        request = Mock()
+        interface = {'method': 'POST', 'required': ['c']}
+        Resource(request, {'method': 'POST'}, 'b', ('a',))(**{'c:ident': 1})
+        request.assert_called_with('POST', 'a/b', {'c:ident': 1})
 
 
 class TestDisqusRequest(unittest.TestCase):

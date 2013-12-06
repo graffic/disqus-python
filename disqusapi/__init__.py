@@ -26,6 +26,11 @@ __all__ = ['DisqusAPI']
 
 
 class Result(object):
+    """
+    Wraps a result dictionary and its cursor.
+
+    It allows common operations directly over the response part.
+    """
     def __init__(self, response, cursor=None):
         self.response = response
         self.cursor = cursor or {}
@@ -52,6 +57,20 @@ class Result(object):
 
 
 class ResourceElement(object):
+    """
+    Object like walking resource generation
+
+    This allows resource generation in this form:
+
+    >>> this.is.an.api.resource.now
+
+    Generating resources for each step, so in the end you get a resource with a
+    tree like this: `('this', 'is', 'an', 'api', 'resource')`
+
+    Since at least two classes use this functionality, do not forget to
+    override _new_element. This method specify what to build as a resource and
+    how to build it.
+    """
     def __init__(self, interface, node, tree):
         self.interface = interface
         if node:
@@ -69,6 +88,7 @@ class ResourceElement(object):
         return self._new_element(interface[attr], attr, self.tree)
 
     def _new_element(self, interface, node, tree):
+        """What to build as a resource in the next step (and how to do it)"""
         raise NotImplementedError('Implment in your subclass')
 
 
@@ -88,10 +108,11 @@ class Resource(ResourceElement):
         return self._make_request(**kwargs)
 
     def _validate_arguments(self, kwargs):
-        keys = kwargs.keys()
-        for k in self.interface.get('required', []):
-            if k not in keys:
-                raise ValueError('Missing required argument: %s' % k)
+        """Validate arguments taking care of queries in the names"""
+        keys = set(key.split(':')[0] for key in kwargs.keys())
+        for required in self.interface.get('required', []):
+            if required not in keys:
+                raise ValueError('Missing required argument: %s' % required)
 
     def _validate_method(self, kwargs):
         method = kwargs.pop('method', self.interface.get('method'))
