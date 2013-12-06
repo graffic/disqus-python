@@ -3,6 +3,7 @@ NEXT VERSION
 
 2013/2014
 
+- Python 3 support (3.3 tested in tox)
 - Refactored and covered with tests.
 - Removed dummy properties in DisqusAPI
 - Improved README.rst
