@@ -114,7 +114,7 @@ class TestResource(unittest.TestCase):
     def test_request_required_query_parameter(self):
         request = Mock()
         interface = {'method': 'POST', 'required': ['c']}
-        Resource(request, {'method': 'POST'}, 'b', ('a',))(**{'c:ident': 1})
+        Resource(request, interface, 'b', ('a',))(**{'c:ident': 1})
         request.assert_called_with('POST', 'a/b', {'c:ident': 1})
 
 
@@ -126,17 +126,29 @@ class TestDisqusRequest(unittest.TestCase):
         response.status = 200
         response.read.return_value = '{"response": 1}'
         self.response = response
-        self.sut = DisqusRequest('secret', '3.0', self.conn)
+        self.default_params = {'api_secret': 'secret'}
+        self.sut = DisqusRequest(self.default_params, '3.0', self.conn)
 
     def set_error_code(self, code):
         self.response.status = 500
         self.response.read.return_value = (
             '{"response": [1, 2], "code": %d}' % code)
 
-    def test_update_keys_secret(self):
+    def test_update_params(self):
         kwargs = {}
         self.sut('POST', 'a/b', kwargs)
         self.assertEqual('secret', kwargs['api_secret'])
+
+    def test_update_params_skip_none(self):
+        kwargs = {}
+        self.default_params['api_secret'] = None
+        self.sut('POST', 'a/b', kwargs)
+        self.assertEqual({}, kwargs)
+
+    def test_update_params_existing(self):
+        kwargs = {'api_secret': 'hammer'}
+        self.sut('POST', 'a/b', kwargs)
+        self.assertEqual('hammer', kwargs['api_secret'])
 
     def test_connection(self):
         self.sut('POST', 'a/b', {})

@@ -137,17 +137,20 @@ class DisqusRequest(object):
     }
     host = 'disqus.com'
 
-    def __init__(self, secret_key, version, conn=HTTPSConnection):
-        self.__secret_key = secret_key
+    def __init__(self, default_params, version, conn=HTTPSConnection):
+        self.__defaults = default_params
         self.__version = version
         self.__conn = conn
 
-    def _update_keys(self, kwargs):
-        if 'api_secret' not in kwargs and self.__secret_key:
-            kwargs['api_secret'] = self.__secret_key
+    def _update_params(self, kwargs):
+        for name, value in self.__defaults.items():
+            if value is None:
+                continue
+            if name not in kwargs:
+                kwargs[name] = value
 
     def __call__(self, method, path, kwargs):
-        self._update_keys(kwargs)
+        self._update_params(kwargs)
         params = params_list(kwargs)
         # Adjust path
         path = '/api/%s/%s.json' % (self.__version, path)
@@ -191,9 +194,15 @@ def load_interfaces():
 
 
 class DisqusAPI(ResourceElement):
-    def __init__(self, secret_key=None, version='3.0', **kwargs):
+    def __init__(self, secret_key=None, public_key=None, access_token=None,
+                 version='3.0', **kwargs):
         super(DisqusAPI, self).__init__(load_interfaces(), None, ())
-        self.make_request = DisqusRequest(secret_key, version)
+
+        default_params = dict(
+            api_key=secret_key,
+            public_key=public_key,
+            access_token=access_token)
+        self.make_request = DisqusRequest(default_params, version)
 
     def _new_element(self, interface, node, tree):
         return Resource(self.make_request, interface, node, tree)
