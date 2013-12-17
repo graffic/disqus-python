@@ -195,12 +195,12 @@ def load_interfaces():
 
 class DisqusAPI(ResourceElement):
     def __init__(self, secret_key=None, public_key=None, access_token=None,
-                 version='3.0', **kwargs):
+                 version='3.0'):
         super(DisqusAPI, self).__init__(load_interfaces(), None, ())
 
         default_params = dict(
-            api_key=secret_key,
-            public_key=public_key,
+            api_secret=secret_key,
+            api_key=public_key,
             access_token=access_token)
         self.make_request = DisqusRequest(default_params, version)
 

@@ -3,7 +3,7 @@ disqus-python
 
 Let's start with installing the API:
 
-.. code:: shell
+.. code:: console
 
     $ pip install disqus-python
 
@@ -12,9 +12,17 @@ Use the API by instantiating it, and then calling the method through dotted nota
 .. code:: python
 
     from disqusapi import DisqusAPI
-    disqus = DisqusAPI(secret_key, public_key)
+    disqus = DisqusAPI('MyApplicationSecretKey')
     for result in disqus.trends.listThreads():
-        print result
+        print(result)
+
+The available `DisqusAPI` parameters are:
+
+- `secret_key`: your applicaiton public key
+- `public_key`: your application public key (You need one of these keys)
+- `access_token`: authentication access_token 
+- `version`: Endpoint version,. It defaults to '3.0'
+
 
 Parameters (including the ability to override version, api_secret, and format) are passed as 
 keyword arguments to the resource call:
@@ -27,7 +35,9 @@ Paginating through endpoints is easy as well:
 
 .. code:: python
 
-    from disqusapi import Paginator
+    from disqusapi import DisqusAPI, Paginator
+
+    api = DisqusAPI('MyApplicationSecretKey')
     paginator = Paginator(api.trends.listThreads, forum='disqus')
     for result in paginator:
         print result
